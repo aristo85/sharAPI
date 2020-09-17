@@ -19,12 +19,11 @@ const authDriver = require("./authDriver");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
-// app.use(
-//   cors({
-//     credentials: true,
-//     origin: ["http://192.168.0.3:5000/", "http://localhost:5000/"],
-//   })
-// );
+app.use(
+  cors({
+    credentials: true,
+  })
+);
 
 // session settings:
 app.use(
