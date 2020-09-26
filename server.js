@@ -58,7 +58,7 @@ try {
         routes(app, db);
 
         //socket.io
-        socket_io(io, db);
+        socket_io(io, app);
 
         // Serve static assets if production
         if (process.env.NODE_ENV === "production") {

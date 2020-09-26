@@ -33,6 +33,9 @@ const ItemSchema = new Schema({
   isSwitch: {
     type: Boolean,
   },
+  messageList: {
+    type: Array,
+  },
 });
 
 module.exports = DriverState = mongoose.model("driverState", ItemSchema);

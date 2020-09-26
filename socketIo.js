@@ -3,7 +3,7 @@ const ClientState = require("./models/ClientState");
 const { getDistance } = require("geolib");
 const DriverState = require("./models/DriverState");
 
-const socket_io = (io, db) => {
+const socket_io = (io, app) => {
   const main = io.of("/main");
   let clientList = [];
   let driverRooms = [];
@@ -11,39 +11,52 @@ const socket_io = (io, db) => {
   let driverStateList = [];
   //******************************************************************************************* */
   // clean the memory DB once in a day(04:42:00 tomsk)
-  var job = new CronJob("00 42 4 * * *", async () => {
-    // console.log("You will see this message every second");
-    newClientState = clientStateList.filter((obj) => obj.orderDate < 4);
-    newDriverState = driverStateList.filter((obj) => obj.orderDate < 4);
+  var job = new CronJob("00 42 04 * * *", async () => {
+    // clean states and remove older data
+    const newTimeFilter = new Date().getTime() - 14400000;
+    newClientState = clientStateList.filter(
+      (obj) => obj.orderDate > newTimeFilter
+    );
+    newDriverState = driverStateList.filter(
+      (obj) => obj.orderDate > newTimeFilter
+    );
     clientStateList = [...newClientState];
     driverStateList = [...newDriverState];
-    // console.log(clientStateList);
     try {
-      await ClientState.deleteMany({ orderDate: { $gt: 4 } });
-      await DriverState.deleteMany({ orderDate: { $gt: 4 } });
+      await ClientState.deleteMany({ orderDate: { $lt: newTimeFilter } });
+      await DriverState.deleteMany({ orderDate: { $lt: newTimeFilter } });
     } catch (err) {
-      // console.log(err);
     }
   });
   job.start();
   //******************************************************************************************* */
-  const handleClientState = async (clientId, state, dataUpdate) => {
+  const handleClientState = async (clientId, state, dataUpdate, message) => {
     // updatae the local memory client state
     const objIndex = clientStateList.findIndex(
       (obj) => obj.clientId === clientId
     );
-    if (objIndex >= 0) {
-      clientStateList[objIndex].state = state;
+    // updating message state if the action was from message
+    if (message) {
+      clientStateList[objIndex].messageList.unshift(message);
     } else {
-      clientStateList.push({
-        clientId: clientId,
-        state: state,
-        orderDate: new Date().getHours(),
-      });
+      if (objIndex >= 0) {
+        clientStateList[objIndex].state = state;
+      } else {
+        clientStateList.push({
+          clientId: clientId,
+          state: state,
+          messageList: [],
+          orderDate: new Date().getTime(),
+        });
+      }
     }
+
     // saving client state to the DB with mongoose
     let query = { clientId: clientId },
-      update = { ...dataUpdate, orderDate: new Date().getHours() },
+      // updating message state if the action was from message
+      update = message
+        ? { $push: { messageList: { $each: [message], $position: 0 } } }
+        : { ...dataUpdate, orderDate: new Date().getTime() },
       options = {
         upsert: true,
         new: true,
@@ -58,21 +71,30 @@ const socket_io = (io, db) => {
     }
   };
   //******************************************************************************************* */
-  const handleDriverState = async (uberId, state, dataUpdate) => {
+  const handleDriverState = async (uberId, state, dataUpdate, message) => {
     // updatae the local memory driver state
     const objIndex = driverStateList.findIndex((obj) => obj.uberId === uberId);
-    if (objIndex >= 0) {
-      driverStateList[objIndex].state = state;
+    // updating message state if the action was from message
+    if (message) {
+      driverStateList[objIndex].messageList.unshift(message);
     } else {
-      driverStateList.push({
-        uberId: uberId,
-        state: state,
-        orderDate: new Date().getHours(),
-      });
+      if (objIndex >= 0) {
+        driverStateList[objIndex].state = state;
+      } else {
+        driverStateList.push({
+          uberId: uberId,
+          state: state,
+          messageList: [],
+          orderDate: new Date().getTime(),
+        });
+      }
     }
+
     // saving driver state to the DB with mongoose
     let query = { uberId: uberId },
-      update = { ...dataUpdate, orderDate: new Date().getHours() },
+      update = message
+        ? { $push: { messageList: { $each: [message], $position: 0 } } }
+        : { ...dataUpdate, orderDate: new Date().getTime() },
       options = {
         upsert: true,
         new: true,
@@ -88,10 +110,8 @@ const socket_io = (io, db) => {
   };
   //******************************************************************************************* */
   main.on("connection", (socket) => {
-    console.log('connext')
     // on reconnection, update state!
     socket.on("reconnection", (data) => {
-      // console.log("give the state: ", data);
       // if the socket is from client
       if (data.clientId) {
         // if client connect for the first time, create new state for it
@@ -116,7 +136,8 @@ const socket_io = (io, db) => {
             clientStateList.push({
               clientId: data.clientId,
               state: data.clientState,
-              orderDate: new Date().getHours(),
+              // messageList: [],
+              orderDate: new Date().getTime(),
             });
           }
           socket.emit(`reconnect ${data.clientId}`, { state: "app" });
@@ -128,7 +149,6 @@ const socket_io = (io, db) => {
           driverFirstConnectionSetup();
           // return false;
         } else if (data.isReconnecting === "fromApp") {
-          // console.log(data.driverState);
           // otherwise find this driver among the list
           const driverAmongStates = driverStateList.find(
             (item) => item.uberId === data.uberId
@@ -146,7 +166,8 @@ const socket_io = (io, db) => {
             driverStateList.push({
               uberId: data.uberId,
               state: data.driverState,
-              orderDate: new Date().getHours(),
+              messageList: data.messageList,
+              orderDate: new Date().getTime(),
             });
           }
           socket.emit(`reconnect ${data.uberId}`, { state: "app" });
@@ -182,23 +203,14 @@ const socket_io = (io, db) => {
             : item
         );
         driverStateList = [...newStateList];
-        // console.log(driverStateList, newStateList);
       }
-      // console.log("joined: ", data);
       socket.join(data.room);
-    });
-    //
-    ////**** *///**** *///**** *///**** *///**** *///**** */
-    //
-    socket.on("comand", (data) => {
-      main.in(data.room).emit("comand", data);
     });
     //
     ////**** *///**** *///**** *///**** *///**** *///**** */
     //
     //driver rejected the order
     socket.on("ignore order", (data) => {
-      // console.log("skip: ", data);
       // tell the client about the rejection
       main.emit(`skip order ${data.clientData.userId}`, data);
       // save states
@@ -208,7 +220,7 @@ const socket_io = (io, db) => {
       handleDriverState(data.driverData.userId, "isSwitch", {
         orderLoader: null,
       });
-      // add tho the clients and driver data's ignored list, then add them to waiting lists
+      // add to the clients and driver data's ignored list, then add them to waiting lists
       const clientIgnoredList = data.clientData.ignoredList;
       const driverIgnoredList = data.driverData.ignoredList;
       const clientHasIgnoredList = {
@@ -234,7 +246,6 @@ const socket_io = (io, db) => {
     //
     //driver time is ranout choosing order
     socket.on("order timeout", (data) => {
-      // console.log("timeout: ", data);
       // tell the client about the rejection
       main.emit(`skip order ${data.clientData.userId}`, data);
       // save states
@@ -256,9 +267,49 @@ const socket_io = (io, db) => {
       main.emit(`driver accepted ${data.clientId}`, data);
       handleClientState(data.clientId, "driverAccepted", {
         driverAccepted: data,
+        messageList: [],
       });
       handleDriverState(data.driverId, "isOrderAccepted", {
         isOrderAccepted: true,
+        messageList: [],
+      });
+    });
+    //
+    ////**** *///**** *///**** *///**** *///**** *///**** */
+    //
+    // message from client to driver
+    socket.on("clientMsg", (data) => {
+      socket.broadcast.to(data.room).emit("message", data.message);
+      // update the chat states
+      const date = `${new Date().getHours()}:${new Date().getMinutes()}`;
+      handleDriverState(data.driverId, null, null, {
+        id: 2,
+        msg: data.message,
+        date,
+      });
+      handleClientState(data.room, null, null, {
+        id: 1,
+        msg: data.message,
+        date,
+      });
+    });
+    //
+    ////**** *///**** *///**** *///**** *///**** *///**** */
+    //
+    // message from driver to client
+    socket.on("driverMsg", (data) => {
+      socket.broadcast.to(data.room).emit("message", data.message);
+      // update the chat states
+      const date = `${new Date().getHours()}:${new Date().getMinutes()}`;
+      handleDriverState(data.driverId, null, null, {
+        id: 1,
+        msg: data.message,
+        date,
+      });
+      handleClientState(data.room, null, null, {
+        id: 2,
+        msg: data.message,
+        date,
       });
     });
     //
@@ -309,12 +360,10 @@ const socket_io = (io, db) => {
     //
     // order executed succesfully
     socket.on("order is executed", (data) => {
-      // console.log("executed: ", data);
       main.emit(`order is executed ${data.clientId}`, data);
       // remove the client state from memory
       removeclientState(data.clientId);
       removeDriverState(data.driverId);
-      // console.log("clientList: ", clientList);
     });
     //
     ////**** *///**** *///**** *///**** *///**** *///**** */
@@ -355,7 +404,6 @@ const socket_io = (io, db) => {
     //
     // if user canceled remove the use from the list
     socket.on("user canceled", (data) => {
-      // console.log("user canceled: ", data);
       // let the driver know in case if the driver is chosen
       main.in(data.userId).emit("user canceled", data);
       // find if there a joined driver in state to this client room
@@ -371,34 +419,40 @@ const socket_io = (io, db) => {
       removeclientState(data.userId);
       // remove the client from the list
       removeClient(data.userId);
-      
-      // console.log("user cancel: ", driverRooms, clientList);
-    });
 
+    });
+    //
+    ////**** *///**** *///**** *///**** *///**** *///**** */
+    //
     socket.on("driver leave room", (room) => {
       socket.leave(room);
     });
-
+    //
+    ////**** *///**** *///**** *///**** *///**** *///**** */
+    //
+    socket.on("driver rejoin room", (room) => {
+      socket.join(room);
+    });
+    //
+    ////**** *///**** *///**** *///**** *///**** *///**** */
+    //
     socket.on("drReconnAfterClCancel", (data) => {
       // if driver already accepted the order and the client is specifically want to ignore this driver
-        // add to the driver data's ignored list, then add it to waiting lists
-        // const driverIgnoredList = data.driverAccepted.ignoredList;
-        const driverHasIgnoredList = {
-          ...data.driverAccepted,
-          ignoredList: [data.clientId],
-        };
-        // firstly remove if there any
-        removeDriver(data.driverAccepted.driverId);
-        driverRooms.push(driverHasIgnoredList);
-        // searching for other clients
-        handleDriverAfterSkiped(driverHasIgnoredList);
+      // add to the driver data's ignored list, then add it to waiting lists
+      // const driverIgnoredList = data.driverAccepted.ignoredList;
+      const driverHasIgnoredList = {
+        ...data.driverAccepted,
+        ignoredList: [data.clientId],
+      };
+      // firstly remove if there any
+      removeDriver(data.driverAccepted.driverId);
+      driverRooms.push(driverHasIgnoredList);
+      // searching for other clients
+      handleDriverAfterSkiped(driverHasIgnoredList);
     });
-
-
 
     // socket.on("remove driver", (userId) => {
     //   removeDriver(userId);
-      console.log(driverRooms);
     // });
 
     //******************************************************* */
@@ -410,10 +464,8 @@ const socket_io = (io, db) => {
 
     // if socket connection from client
     const clientFirstConnectionSetup = () => {
-      // console.log(socket.request._query);
       const clientData = JSON.parse(socket.request._query.clientData);
       const clientId = clientData.userId;
-      // console.log("client");
 
       let newDriverRooms = driverRooms.filter((driver) => {
         let isAvailabe = driver.ignoredList.find((id) => id === clientId);
@@ -452,7 +504,6 @@ const socket_io = (io, db) => {
         });
         //remove the driver from the waiting list
         driverRooms.splice(arr.index, 1);
-        // console.log("driverRooms: ", driverRooms);
       } else {
         // if no drivers, dont add the client to waiting list yet until client emits(waiting)
         socket.emit(`waiting ${clientId}`, null);
@@ -460,7 +511,6 @@ const socket_io = (io, db) => {
     };
 
     const driverFirstConnectionSetup = (data) => {
-      // console.log("clientList from driver: ", clientList);
       const driverData = data
         ? data
         : JSON.parse(socket.request._query.driverData);
@@ -490,7 +540,6 @@ const socket_io = (io, db) => {
         driverRooms.push(driverData);
         // save state to memory and the DB
         handleDriverState(uberId, "isSwitch", { isSwitch: true });
-        // console.log(driverRooms);
       }
     };
 
@@ -507,7 +556,6 @@ const socket_io = (io, db) => {
           newList.push(driverRooms[i]);
         }
       }
-      // console.log("newList: ", newList);
       // if driver rooms is not empty after removing ignored list from it
       if (newList.length > 0) {
         // sending to the client a driver list
@@ -609,7 +657,6 @@ const socket_io = (io, db) => {
         });
         //remove the driver from the waiting list
         driverRooms.splice(arr.index, 1);
-        // console.log("driverRooms: ", driverRooms);
       } else {
         // add the client to waiting list
         // firstly remove if there any
@@ -652,6 +699,13 @@ const socket_io = (io, db) => {
       }
     };
   });
+  //******************************************************************************************* */
+  // //delete driver from the app first run if
+  // app.delete("/api/deleteDriver/:driverId", (req, res) => {
+  //   const driverId = req.params.driverId;
+  //   removeDriver(driverId);
+  //   return res.status(200).json({ success: true, driverRooms });
+  // });
   //******************************************************************************************* */
 };
 

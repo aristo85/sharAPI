@@ -44,7 +44,9 @@ module.exports = (app, db) => {
         const newUser = new ClientUser({
           username: req.body.username,
           password: hash,
-          // userType: req.body.userType,
+          phoneNumber: req.body.phoneNumber,
+          email: req.body.email,
+          rating: 0,
         });
         newUser.save((err, user) => {
           if (err) {
@@ -63,6 +65,8 @@ module.exports = (app, db) => {
                 userId: user._id,
                 userName: user.username,
                 shar_auth: token,
+                phoneNumber: user.phoneNumber,
+                rating: user.rating,
               });
             });
           }
@@ -99,6 +103,8 @@ module.exports = (app, db) => {
               userId: user._id,
               userName: user.username,
               shar_auth: token,
+              phoneNumber: user.phoneNumber,
+              rating: user.rating,
             });
           });
         }

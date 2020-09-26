@@ -33,6 +33,9 @@ const ItemSchema = new Schema({
   isClientWaiting: {
     // type: String,
   },
+  messageList: {
+    type: Array,
+  },
 });
 
 module.exports = ClientState = mongoose.model("clientState", ItemSchema);

@@ -10,11 +10,17 @@ const ItemSchema = new Schema({
   password: {
     type: String,
   },
-  userType: {
-    type: String,
-  },
   token: {
     type: String,
+  },
+  phoneNumber: {
+    type: String,
+  },
+  email: {
+    type: String,
+  },
+  rating: {
+    type: Number,
   },
 });
 // creating method (findByToken) in the driver model
