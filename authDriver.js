@@ -34,7 +34,7 @@ module.exports = (app, db) => {
         next(err);
       } else if (user) {
         // if the user already exist
-        res.status(400).json({
+        res.json({
           success: false,
           message: "user with this name is exists",
         });
@@ -46,11 +46,11 @@ module.exports = (app, db) => {
           password: hash,
           phoneNumber: req.body.phoneNumber,
           email: req.body.email,
-          rating: 0,
+          rating: [4.9],
         });
         newUser.save((err, user) => {
           if (err) {
-            res.status(400).json({
+            res.json({
               success: false,
               message: "something gone wrong from server try again later!",
             });

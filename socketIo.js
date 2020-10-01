@@ -112,9 +112,10 @@ const socket_io = (io, app) => {
   main.on("connection", (socket) => {
     // on reconnection, update state!
     socket.on("reconnection", (data) => {
-      // if the socket is from client
+    // if the socket is from client
       if (data.clientId) {
-        // if client connect for the first time, create new state for it
+    console.log(data.isReconnecting, clientStateList)
+    // if client connect for the first time, create new state for it
         if (!data.isReconnecting) {
           clientFirstConnectionSetup();
           // return false;
@@ -373,13 +374,6 @@ const socket_io = (io, app) => {
     socket.on("driver rated", (data) => {
       driverFirstConnectionSetup(data.driverData);
       main.emit(`driver rated ${data.clientId}`, data);
-    });
-    //
-    ////**** *///**** *///**** *///**** *///**** *///**** */
-    //
-    //on user rated driver
-    socket.on("client rated", (data) => {
-      main.emit(`client rated ${data.driverId}`, data);
     });
     //
     ////**** *///**** *///**** *///**** *///**** *///**** */

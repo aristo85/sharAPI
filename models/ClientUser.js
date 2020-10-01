@@ -20,7 +20,10 @@ const ItemSchema = new Schema({
     type: String,
   },
   rating: {
-    type: Number,
+    type: Array,
+  },
+  orderedHistory: {
+    type: Array,
   },
 });
 // creating method (findByToken) in the Client model
