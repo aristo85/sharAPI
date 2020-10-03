@@ -25,8 +25,7 @@ const socket_io = (io, app) => {
     try {
       await ClientState.deleteMany({ orderDate: { $lt: newTimeFilter } });
       await DriverState.deleteMany({ orderDate: { $lt: newTimeFilter } });
-    } catch (err) {
-    }
+    } catch (err) {}
   });
   job.start();
   //******************************************************************************************* */
@@ -112,10 +111,10 @@ const socket_io = (io, app) => {
   main.on("connection", (socket) => {
     // on reconnection, update state!
     socket.on("reconnection", (data) => {
-    // if the socket is from client
+      // if the socket is from client
       if (data.clientId) {
-    console.log(data.isReconnecting, clientStateList)
-    // if client connect for the first time, create new state for it
+        console.log(data.isReconnecting, clientStateList);
+        // if client connect for the first time, create new state for it
         if (!data.isReconnecting) {
           clientFirstConnectionSetup();
           // return false;
@@ -183,6 +182,7 @@ const socket_io = (io, app) => {
       // firstly remove if there any
       removeClient(clientData.userId);
       clientList.push(clientData);
+      console.log(clientData);
       // save clietn state
       handleClientState(clientData.userId, "isClientWaiting", {
         isClientWaiting: true,
@@ -348,11 +348,16 @@ const socket_io = (io, app) => {
     //
     // start moving to destination
     socket.on("to destination", (data) => {
-      main.emit(`to destination ${data.clientId}`, data);
+      main.emit(`to destination ${data.clientId}`, {
+        clientId: data.clientId,
+        driverId: data.driverId,
+      });
       handleClientState(data.clientId, "toDestination", {
+        clientData: data.newClientData,
         toDestination: data,
       });
       handleDriverState(data.driverId, "pickedClient", {
+        orderLoader: data.newClientData,
         pickedClient: true,
       });
     });
@@ -413,7 +418,6 @@ const socket_io = (io, app) => {
       removeclientState(data.userId);
       // remove the client from the list
       removeClient(data.userId);
-
     });
     //
     ////**** *///**** *///**** *///**** *///**** *///**** */
@@ -509,6 +513,7 @@ const socket_io = (io, app) => {
         ? data
         : JSON.parse(socket.request._query.driverData);
       const uberId = driverData.userId;
+      console.log("clientList", clientList);
 
       let newClientList = clientList.filter((client) => {
         let isAvailabe = client.ignoredList.find((id) => id === uberId);
